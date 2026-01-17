@@ -1,0 +1,179 @@
+---
+title: "Will it Rain in Fitchburg Tomorrow?"
+author: "Evam Pritchard"
+format: html
+editor: visual
+---
+
+## **Introduction**
+
+The weather affects us all every day. Imagine, you're planning your son's outdoor birthday party, complete with a bounce house, face painting, and two dozen excited children with their slightly less excited parents. Or maybe you'd like to have a lovely picnic with that special someone, but a ill-timed spritz from the sky would surely ruin the moment. Perhaps you're just someone who bikes to school or work and really, really doesn't want to show up to that important meeting or presentation looking like a drowned rat. The question "Will it rain tomorrow?" is one we ask ourselves constantly, and the answer shapes many decisions we make every single day.
+
+But beyond personal inconveniences and soggy sneakers, rainfall prediction has serious implications for Fitchburg as a community. Construction projects grind to a halt when weather turns, creating longer commutes and longer detours. The city's Department of Public Works needs advance warning to prepare for potential flooding, clear storm drains, and have crews ready for emergency responses. Schools decide whether outdoor recess is feasible. The local University plans many outdoor events and activities, and each and every one of them has rain dates, but also costs associated with setup and tear-down; things they'd hate to do twice if they can avoid it. Even your neighbor deciding whether to water their tomato plants is making a small bet on tomorrow's weather.
+
+This model aims to aid the meteorologist at their 4pm weather forecast. But as they say, "You can't predict the weather," And to further complicate the matter, we will be focusing on the micro-climate bubble that is Fitchburg, with no regard for outside influences. It is true, "predicting" the weather is not a feasible task, and to make any estimate without regard and interpretation to greater weather patterns that could squeeze out the atmosphere at any moment seems unreasonable. But let's see what logistic regression of daily trends and patterns over 80 years can tell us about a simple question; for Fitchburg, based on today's meterlogical measurement can we glean insights into whether it will rain tomorrow? Or rather, is there a measurable way to forecast the weather, or is it better to just look up?
+
+**Data and Methods**
+
+This analysis utilizes historical weather data from the local airport in Fitchburg, Massachusetts, spanning 85 years from October 1940 to October 2025. The original dataset, sourced fromOpen-Meteo.com's Historical Weather API, contains hourly weather observations totaling 776,177 hours. The data includes comprehensive meteorological variables such as temperature, precipitation, atmospheric pressure, relative humidity, dew point, cloud cover at multiple levels, wind speed and direction at multiple elevations, and evapotranspiration measurements, as well as soil moisture and soil temperature measurements.
+
+Wrangling this dataset into something manageable for predictive modelling of our question took some work. Hourly results were first grouped by day. Initially, measurements were summed over the day and variables planning to be used as predictors were averaged for each day. Immediately upon analysis, issues became apparent with the wrangled data. Days where it rained the day before were far more likely to experience rain than made logical sense. Upon diving deeper into the dataset, it was clear that many days when it was raining late in the evening, it was also raining early in the morning the next day. This was not what the study was trying to show, so the data was rewrangled in order to stop daily measurements at 4pm, to accomodate a proper forecast.
+
+Threshold levels of 0mm, 0.1mm, and 0.2mm were explored. Roughly \$\\frac{2}{3}\$ of all days experienced some rain (more than none), half of all days experienced 0.1mm, and \$\\frac{1}{3}\$ of all days experienced 0.2mm or more of rain. Primarially to focus on the question at hand of, "Does it rain tomorrow?" as it pertains to our perception of "rain," but also to help keep interpretation of the metrics of each model easier, rain accumulation was only counted if it registered as 0.1mm or more for the day.
+
+Measurements were extracted for each day at the start of the day and at 4pm for cloud cover (%), surface pressure (hPa), temperature (^\$\\circ\$^F), relative humidity (%), wind speed (mph) at 10m and 100m, wind direction (at 10m and 100m), dew point (^\$\\circ\$^F), and apparent temperature (^\$\\circ\$^F). Wind direction measurements were then categorized into eight compass directions (N, NE, E, SE, S, SW, W, NW) for easier interpretation. Differences between start of day and 4pm were also recorded for each numeric variable as the change in conditions is often linked to stormy weather, including rain. After exploring the correlation between cloud cover at 4pm and rain the next day (Appendix 2), it became reasonable to define binary variables for cloud cover greater than 90% and less than 15%, so addition wrangling was performed to accomplish such.
+
+As far as our time dependent variables, the year for each date was extracted separately to be used as a variable to test for yearly trends in precipitation. While there certainly was a lower and upper bound to the number of rainy days per year, there was no discernable pattern and each year's number of days of rain seemed independent of the adjacent two (Appendix 1). Due to such, this variable was abandoned for modelling purposes. Seasons were characterized by month (Dec, Jan, Feb became Winter, Mar, Apr, May became Spring, and so on for the other two seasons).
+
+Rain and precipitation (mm) were summed throughout each day, and then each result was backed up one day and turned into a factor to identify if there was rain or precipitation that day or not. These variables of rain tomorrow and precipitation tomorrow were then used as our response variables for modelling purposes. We did at one point have a perfect model that predicted precipitation correctly for every day in the test dataframe. It was then realized that the precipitation tomorrow variable was collecting data for that day, not the next day due to the absence of the lead() function. This was corrected and more reasonable results followed.
+
+A quick summary of the data statistics can be found at the beginning of the the Appendix.
+
+The resulting dataset contains \$31,048\$ daily observations across \$35\$ variables summarizing key meterological factors for each date over \$85\$ years. That dataset was then split between a training dataframe, that included all daily data from October 31, 1945 up until the end of 2020, and a test dataframe including year 2021 through October 31, 2025.
+
+**Results**
+
+Our initial inquiry into relations between predictor variables showed strong correlations between rain tomorrow and both rain today (Appendix 3) and if it was raining more than average at 4pm. The presence of rain at 4pm (Appendix 4) was where the correlation was found, but the amount of rain at 4pm was what was incorporated into our base model.
+
+$$
+\log\left(\frac{\hat{p}}{1-\hat{p}} \right) = -0.78 + 1.39 \cdot \mathrm{rain~before~4pm} + 0.54 \cdot \mathrm{amount~of~rain~at~4pm~reading}
+$$
+
+Exploring the variables individually showed general trends in response dependence on the variables, but there was a lot of overlap for each variable. Immediately it was apparent that more than one predictor influences the odds of rain each day. Our base model put weights on whether it rained today before 4pm and how much it rained for the 4pm reading. This model actually performed reasonably well considering its simplicity. This model worked better than flipping a coin, predicting the chance of rain tomorrow with about 60% accuracy. That did, however, leave quite a bit of room for improvement.
+
+The first round of modelling explored the prediction power of the variable values for pressure (Appendix 5), temperature (Appendix 6), and humidity (Appendix 7) changes throughout the day as well as cloud cover thresholds (Appendix 2) that seemed to be good predictors of rain or no rain the next day, while also incorporating wind direction on the ground (Appendix 8), which was chosen arbitrarily due to its near identical prediction power to the wind direction at 100m (Appendix 9). The resulting model was:
+
+$$
+\log\left(\frac{\hat{p}}{1-\hat{p}} \right) = -1.43 + 1.28 \cdot \mathrm{rain~before~4pm} + 0.48 \cdot \mathrm{amount~of~rain~at~4pm~reading}
+$$
+
+$$
+- 0.07 \cdot \mathrm{pressure~change} - 0.01 \cdot \mathrm{humidity~change} -0.64 \cdot \mathrm{clouds~before~4pm~lt~15\%} 
+$$
+
+$$
++ 0.21 \cdot \mathrm{clouds~4pm~gt~90\%} + 0.01 \cdot \mathrm{degree~of~temp~change}
+$$
+
+$$
++ 0.04 \cdot \mathrm{N} - 0.12 \cdot \mathrm{NE} + 0.34 \cdot \mathrm{NW} + 0.57 \cdot \mathrm{S}+0.39 \cdot \mathrm{SE} + 0.78 \cdot \mathrm{SW} + 0.60 \cdot \mathrm{W}
+$$
+
+The model performed fairly well on the test data from 2021-2025. Of all of the models explored without interaction terms, it faired the best in terms of AIC and BIC, and also outperformed the other simple models (models with no interaction terms) by all metrics:
+
+|             |           |
+|:-----------:|:---------:|
+|  accuracy   | 0.6787535 |
+|   roc_auc   | 0.7436605 |
+| sensitivity | 0.6618465 |
+| specificity | 0.6963048 |
+
+But even this model is simplified. The weather is complex and each variable is intertwined with the next. As we started to look for interaction terms, temperature (Appendix 10) and humidity (Appendix 11) seemed to have different effects based on the season, particularly the winter season. For this reason, we created a binary variable for winter and interacted with these two predictors. Cloud cover and wind direction were still incorporated due to their importance, as discussed prior.
+
+$$
+\log\left(\frac{\hat{p}}{1-\hat{p}} \right) = 59.05 + 0.74 \cdot \mathrm{rain~before~4pm} + 0.26 \cdot \mathrm{amount~of~rain~at~4pm~reading}  
+$$
+
+$$
+- 0.06 \cdot \mathrm{pressure~at~4pm} - 0.008 \cdot \mathrm{humidity~at~4pm} + 0.004 \cdot \mathrm{temp~at~4pm} + 0.006 \cdot \mathrm{clouds~at~4pm}
+$$
+
+$$
+-2.38 \cdot \mathrm{Winter} - 0.006 \cdot \mathrm{Winter * Humidity} + 0.05 \cdot \mathrm{Winter * Temp}
+$$
+
+$$
+ + 0.26 \cdot \mathrm{N} - 0.08 \cdot \mathrm{NE} + 0.52 \cdot \mathrm{NW} + 0.37 \cdot \mathrm{S}+0.28 \cdot \mathrm{SE} + 0.53 \cdot \mathrm{SW} + 0.63 \cdot \mathrm{W}
+$$
+
+Our AIC and BIC scores identify this last one as our best model, and our other metrics (Appendix 12) agree. We can confirm from our confusion matrix (Appendix 13) that our model says it will rain when it won't only about 29% of the time for a sensitivity score of 71%, and the model says it will rain when it won't about 31% of the time, leaving specificity near 69%. Also, our ROC/AUC curve (Appendix 14) is maximized for all of our trial and potential models. With an overall accuracy score near 71% and a bimodal representation of predictions vs actual outcomes (Appendix 15), I would call that a modestly successful weather forecast!
+
+**Discussion and Conclusions**
+
+Clearly, being right about the rain tomorrow 7 out of 10 times is not ideal, but it is better than a coinflip. There will be a lot of rained out picnics and soggy commuters if we hang our hat on this forecast model. But it is better than flipping a coin, and better than any of the other potential models that were explored.
+
+The problem is in the way that the weather system is being viewed. Weather does not happen in a bubble, and our model is built on data from only Fitchburg Airport, with no regard for the surrounding areas' weather. While some incremental progress could be made on this model, the problem persists that we are trying to predict the outcome of many, MANY factors based on only what effects are already swept past us downwind.
+
+It is also possible that a different wrangling of the hourly data may lead to predictors that are more predictive of the likelihood of rain tomorrow, but issues such as predicting rain that continues from 11pm to midnight could again arise and skew our results away from the predictive forecast we have attempted to generate. It is also possible that some interaction could improve our model, but every interaction term attempted made the models worse, not better.
+
+It is true that you can't predict the weather. Even with a more robust model, the unpredictability of unforeseen ebbs and flows of the atmosphere can ruin any forecast, especially when we start to look out farther than tomorrow. But with limited data from our little Fitchburg microclimate bubble studied here, we can manage to offer general guidance on whether you should grab your umbrella, or to grab your sweetie for that picnic.
+
+**Appendix**
+
+\(0\) Summary Statistics:
+
+<center>
+
+{{< embed "project2_analysis.qmd#new dataframe summary" >}}
+
+{{< embed "project2_analysis.qmd#summary of new dataframe binary" >}}
+
+{{< embed "project2_analysis.qmd#summary of new dataframe 1" >}}
+
+{{< embed "project2_analysis.qmd#summary of new dataframe 2" >}}
+
+{{< embed "project2_analysis.qmd#summary of new dataframe 3" >}}
+
+{{< embed "project2_analysis.qmd#summary of new dataframe 4" >}}
+
+</center>
+
+\(1\) Rainy Days Per Year:
+
+{{< embed "project2_analysis.qmd#explore rainy days per year" >}}
+
+\(2\) Cloud Cover Percent at 4pm:
+
+{{< embed "project2_analysis.qmd#explore numerical variable cloud_cover histogram" >}}
+
+\(3\) Rain Today before 4pm vs Rain Tomorrow:
+
+{{< embed "project2_analysis.qmd#explore categorical variable rain today" >}}
+
+\(4\) Raining at 4pm vs Rain Tomorrow:
+
+{{< embed "project2_analysis.qmd#explore categorical variable raining at 4pm" >}}
+
+\(5\) Pressure Change Midnight to 4pm:
+
+{{< embed "project2_analysis.qmd#explore numerical variable pressure change histogram" >}}
+
+\(6\) Temperature Change Midnight to 4pm:
+
+{{< embed "project2_analysis.qmd#explore numerical variable temperature change histogram" >}}
+
+\(7\) Humidity Change Midnight to 4pm:
+
+{{< embed "project2_analysis.qmd#explore numerical variable humidity change histogram" >}}
+
+\(8\) Wind Direction Daily Average at 10m:
+
+{{< embed "project2_analysis.qmd#explore categorical variable wind_ground" >}}
+
+\(9\) Wind Direction Daily Average at 100m:
+
+{{< embed "project2_analysis.qmd#explore categorical variable wind_above" >}}
+
+\(10\) Temperature at 4pm:
+
+{{< embed "project2_analysis.qmd#explore numerical variable temperature histogram" >}}
+
+\(11\) Humidity at 4pm:
+
+{{< embed "project2_analysis.qmd#explore numerical variable humidity histogram" >}}
+
+\(12\) Metrics:
+
+{{< embed "project2_analysis.qmd#metrics model3" >}}
+
+\(13\) Confusion Matrix:
+
+{{< embed "project2_analysis.qmd#confusion matrix model3" >}}
+
+\(14\) ROC/AUC:
+
+{{< embed "project2_analysis.qmd#ROC-AUC graph model3" >}}
+
+\(15\) Outcomes Vs Predicted Results:
+
+{{< embed "project2_analysis.qmd#logistic model vs test dataset" >}}

@@ -1,0 +1,833 @@
+---
+title: "Project 2 Analysis"
+author: "Evan Pritchard"
+format: html
+editor: visual
+---
+
+## Analysis Document
+
+```{r}
+#| label: setup block
+#| message: FALSE
+#| warning: FALSE
+
+#install.packages("knitr")
+
+library(tidyverse)
+library(tidymodels)
+library(openintro)
+library(knitr)
+```
+
+```{r}
+#| label: read in data file
+#| echo: false
+
+all_weather <- read_csv("FitchburgWeather.csv")
+
+```
+
+```{r}
+#| label: data wrangling
+#| echo: false
+
+daily <- all_weather |>
+  mutate(time = ymd_hms(time),  # Convert character to datetime
+         date = as.Date(time),
+         hour = hour(time)) |>  # Extract hour for filtering
+  group_by(date) |>
+  summarise(
+    # Rain at 4pm specifically
+    rain_at_4pm = rain[hour == 16][1],
+    precip_at_4pm = precipitation[hour==16][1], 
+    
+    # Sum precipitation variables for the whole day
+    precipitation = sum(precipitation, na.rm = TRUE),
+    rain = sum(rain, na.rm = TRUE),
+    evapotranspiration = sum(et0_fao_evapotranspiration, na.rm = TRUE),
+    
+    # Sum precipitation before 4pm
+    rain_before_4pm = sum(rain[hour < 16], na.rm = TRUE),
+    precip_before_4pm = sum(precipitation[hour < 16], na.rm = TRUE),
+    
+
+    # Start of day readings
+    cloud_cover_start = first(cloud_cover),
+    surface_pressure_start = first(surface_pressure),
+    temperature_2m_start = first(temperature_2m),
+    relative_humidity_2m_start = first(relative_humidity_2m),
+    wind_speed_10m_start = first(wind_speed_10m),
+    wind_speed_100m_start = first(wind_speed_100m),
+    wind_direction_10m_start = first(wind_direction_10m),
+    wind_direction_100m_start = first(wind_direction_100m),
+    dew_point_2m_start = first(dew_point_2m),
+    apparent_temperature_start = first(apparent_temperature),
+    
+    # 4pm readings
+    cloud_cover_4pm = cloud_cover[hour == 16][1],
+    cc_4pm_gt_90 = ifelse(cloud_cover_4pm > 90, 1, 0),
+    cc_4pm_lt_15 = ifelse(cloud_cover_4pm < 15, 1, 0),
+    surface_pressure_4pm = surface_pressure[hour == 16][1],
+    temperature_2m_4pm = temperature_2m[hour == 16][1],
+    relative_humidity_2m_4pm = relative_humidity_2m[hour == 16][1],
+    wind_speed_10m_4pm = wind_speed_10m[hour == 16][1],
+    wind_speed_100m_4pm = wind_speed_100m[hour == 16][1],
+    wind_direction_10m_4pm = wind_direction_10m[hour == 16][1],
+    wind_direction_100m_4pm = wind_direction_100m[hour == 16][1],
+    dew_point_2m_4pm = dew_point_2m[hour == 16][1],
+    apparent_temperature_4pm = apparent_temperature[hour == 16][1]
+  ) |>
+  ungroup()
+
+# Create derived variables, binary indicators, and categorical variables
+daily <- daily |>
+  mutate(
+    # Calculate changes from start to 4pm
+    pressure_change = surface_pressure_4pm - surface_pressure_start,
+    cloud_cover_change = cloud_cover_4pm - cloud_cover_start,
+    temperature_change = temperature_2m_4pm - temperature_2m_start,
+    humidity_change = relative_humidity_2m_4pm - relative_humidity_2m_start,
+    wind_speed_10m_change = wind_speed_10m_4pm - wind_speed_10m_start,
+    wind_speed_100m_change = wind_speed_100m_4pm - wind_speed_100m_start,
+    dew_point_change = dew_point_2m_4pm - dew_point_2m_start,
+    apparent_temp_change = apparent_temperature_4pm - apparent_temperature_start,
+    
+    # Extract year
+    year = year(date),
+    
+    # Binary precipitation variables
+    precip_today = ifelse(precip_before_4pm > 0.1, 1, 0), 
+    precip_tomorrow = factor(lead(ifelse(precipitation > 0.1, 1, 0)), levels = c(0, 1), labels = c("No_Precip", "Precip")),
+    rain_today = ifelse(rain_before_4pm > 0.1, 1, 0),
+    rain_tomorrow = factor(lead(ifelse(rain > 0.1, 1, 0)), levels = c(0, 1), labels = c("No_Rain", "Rain")),
+    
+    
+    # Categorize wind directions (using start of day values)
+    wind_direction_ground = case_when(
+      wind_direction_10m_start >= 0 & wind_direction_10m_start <= 22 ~ "N",
+      wind_direction_10m_start >= 339 & wind_direction_10m_start <= 360 ~ "N",
+      wind_direction_10m_start >= 23 & wind_direction_10m_start <= 67 ~ "NE",
+      wind_direction_10m_start >= 68 & wind_direction_10m_start <= 112 ~ "E",
+      wind_direction_10m_start >= 113 & wind_direction_10m_start <= 157 ~ "SE",
+      wind_direction_10m_start >= 158 & wind_direction_10m_start <= 202 ~ "S",
+      wind_direction_10m_start >= 203 & wind_direction_10m_start <= 247 ~ "SW",
+      wind_direction_10m_start >= 248 & wind_direction_10m_start <= 292 ~ "W",
+      wind_direction_10m_start >= 293 & wind_direction_10m_start <= 338 ~ "NW",
+      TRUE ~ NA_character_
+    ),
+    wind_direction_above = case_when(
+      wind_direction_100m_start >= 0 & wind_direction_100m_start <= 22 ~ "N",
+      wind_direction_100m_start >= 339 & wind_direction_100m_start <= 360 ~ "N",
+      wind_direction_100m_start >= 23 & wind_direction_100m_start <= 67 ~ "NE",
+      wind_direction_100m_start >= 68 & wind_direction_100m_start <= 112 ~ "E",
+      wind_direction_100m_start >= 113 & wind_direction_100m_start <= 157 ~ "SE",
+      wind_direction_100m_start >= 158 & wind_direction_100m_start <= 202 ~ "S",
+      wind_direction_100m_start >= 203 & wind_direction_100m_start <= 247 ~ "SW",
+      wind_direction_100m_start >= 248 & wind_direction_100m_start <= 292 ~ "W",
+      wind_direction_100m_start >= 293 & wind_direction_100m_start <= 338 ~ "NW",
+      TRUE ~ NA_character_  
+    ),
+    
+    # Add season
+    season = case_when(
+      month(date) %in% c(12, 1, 2) ~ "Winter",
+      month(date) %in% c(3, 4, 5) ~ "Spring",
+      month(date) %in% c(6, 7, 8) ~ "Summer",
+      month(date) %in% c(9, 10, 11) ~ "Fall",
+      TRUE ~ NA_character_
+    )
+  ) |> select(!c(wind_direction_10m_start, wind_direction_10m_4pm,
+            wind_direction_100m_start, wind_direction_100m_4pm,
+            rain_before_4pm, precip_before_4pm))
+
+```
+
+```{r}
+#| label: further wrangling and split dataset
+#| echo: false
+
+daily <- daily |>
+  mutate(is_winter = ifelse(season == "Winter", 1, 0)) |>
+  mutate(winds_favor_rain = ifelse(wind_direction_above == c("S", "SW", "W"), 1, 0))  
+
+train <- daily |>
+  filter(year < 2021)
+
+test <- daily |>
+  filter(year >= 2021)
+
+```
+
+
+```{r}
+#| label: new dataframe summary
+# #| echo: FALSE
+
+summary_stats <- daily |>
+  select(!c(year, precip_today, rain_today)) |>
+  summarise(across(where(is.numeric), 
+                   list(mean = ~round(mean(., na.rm = TRUE), 2), 
+                        median = ~round(median(., na.rm = TRUE), 2)))) |>
+  pivot_longer(everything(), 
+               names_to = c("variable", "stat"), 
+               names_sep = "_(?=mean|median)") |>
+  pivot_wider(names_from = stat, values_from = value)
+
+print(summary_stats, n = Inf)  # Print all rows
+
+```
+
+```{r}
+#| label: summary of new dataframe binary
+# #| echo: false
+
+binary_summary <- daily |>
+  summarise(across(c(rain_today, precip_today, cc_4pm_gt_90, cc_4pm_lt_15, winds_favor_rain, is_winter), 
+                   list(yes = ~sum(. == 1, na.rm = TRUE), 
+                        no = ~sum(. == 0, na.rm = TRUE),
+                        na = ~sum(is.na(.))))) |>
+  pivot_longer(everything(), 
+               names_to = c("variable", "count_type"), 
+               names_sep = "_(?=yes|no|na)") |>
+  pivot_wider(names_from = count_type, values_from = value)
+
+print(binary_summary, n = Inf)
+```
+```{r}
+#| label: summary of new dataframe 1
+# #| echo: false
+
+
+table(daily$wind_direction_ground)
+```
+
+```{r}
+#| label: summary of new dataframe 2
+# #| echo: false
+
+
+table(daily$wind_direction_above)
+```
+
+```{r}
+#| label: summary of new dataframe 3
+# #| echo: false
+
+
+table(daily$season)
+```
+
+
+```{r}
+#| label: summary of new dataframe 4
+# #| echo: false
+
+table(daily$rain_tomorrow)
+```
+
+
+```{r}
+#| label: explore categorical variable rain today
+# #| echo: false
+
+
+ggplot(train |> filter(!is.na(rain_tomorrow)))  +
+  aes(x=rain_today, fill=rain_tomorrow) + 
+    geom_bar(position="fill") +
+    xlab('Rain Today') +
+    labs(x = 'It rained today before 4pm', fill = 'Does it rain tomorrow?')
+
+```
+
+```{r}
+#| label: explore categorical variable raining at 4pm
+# #| echo: false
+
+
+ggplot(train |> filter(!is.na(rain_at_4pm)))  +
+  aes(x=ifelse(rain_at_4pm > 0.08, 1, 0), fill=rain_tomorrow) + 
+    geom_bar(position="fill") +
+    xlab('Raining at 4pm') +
+    labs(x = 'Is it raining at 4pm?', fill = 'Does it rain tomorrow?')
+
+```
+```{r}
+#| label: logistic base model
+# #| echo: false
+
+logistic_spec <- logistic_reg() |>
+      set_engine("glm") |>
+      set_mode("classification")
+
+base_model <- logistic_spec |>
+  fit(rain_tomorrow ~ rain_today + rain_at_4pm, data = train, family = "binomial")
+tidy(base_model, conf.int = TRUE, conf.level = 0.9)
+```
+```{r}
+#| label: odds ratio and confidence intervals base model
+# #| echo: false
+
+exp(coef(base_model$fit))
+exp(confint.default(base_model$fit))
+```
+
+
+```{r}
+#| label: explore categorical variable season
+# #| echo: false
+
+#| label: bar graphs
+
+ggplot(train |> filter(!is.na(season)))  +
+  aes(x=season, fill=rain_tomorrow) + 
+    geom_bar(position="fill") +
+    xlab('season') +
+    labs(x = 'Seasons', fill = 'Does it rain tomorrow?')
+
+```
+
+```{r}
+#| label: explore categorical variable wind_ground
+# #| echo: false
+
+ggplot(train) +
+  aes(x=wind_direction_ground, fill=rain_tomorrow) + 
+    geom_bar(position="fill") +
+    xlab('Wind Direction on the Ground') +
+    labs(x = 'Wind Direction', fill = 'Does it rain tomorrow?')
+```
+
+```{r}
+#| label: explore categorical variable wind_above
+# #| echo: false
+
+
+ggplot(train) +
+  aes(x=wind_direction_above, fill=rain_tomorrow) + 
+    geom_bar(position="fill") +
+    xlab('Wind Direction at 100m') +
+    labs(x = 'Wind Direction', fill = 'Does it rain tomorrow?')
+```
+```{r}
+#|label: explore rainy days per year
+# #| echo: false
+
+
+ggplot(train |> filter(!is.na(rain_tomorrow) & rain_tomorrow == "Rain"), 
+       aes(x = year)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "black") +
+  labs(title = "Number of Rainy Days per Year in Fitchburg",
+       x = "Year",
+       y = "Count of Rainy Days")
+```
+
+```{r}
+#| label: explore numerical variable cloud_cover_4pm boxplot
+# #| echo: false
+
+ggplot(data = daily |> filter(!is.na(rain_tomorrow))) +
+  aes(x = rain_tomorrow, y = cloud_cover_4pm) +
+  geom_boxplot() +
+  xlab('Will it rain tomorrow?') +
+  ylab('Cloud Cover at 4pm Today')
+
+```
+
+
+
+
+```{r}
+#| label: explore numerical variable cloud_cover histogram
+# #| echo: false
+
+ggplot(daily |> filter(!is.na(rain_tomorrow))) + 
+  aes(x = cloud_cover_4pm, fill = rain_tomorrow) +
+  geom_density(alpha = 0.5) +
+  xlab('Cloud Cover at 4pm Today') +
+  labs(fill='Will it rain tomorrow?')
+```
+
+```{r}
+#| label: explore numerical variable temperature histogram
+# #| echo: false
+
+
+ggplot(data = daily |> filter(!is.na(rain_tomorrow))) + 
+  aes(x = temperature_2m_4pm, fill = rain_tomorrow) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~season) +
+  xlab('Temperature at 4pm Today') +
+  labs(fill='Will it rain tomorrow?')
+```
+
+```{r}
+#| label: explore numerical variable humidity histogram
+# #| echo: false
+
+
+ggplot(data = daily |> filter(!is.na(rain_tomorrow))) + 
+  aes(x = relative_humidity_2m_4pm, fill = rain_tomorrow) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~season) +
+
+  xlab('humidity at 4pm Today') +
+  labs(fill='Will it rain tomorrow?')
+```
+
+```{r}
+#| label: explore numerical variable pressure histogram
+# #| echo: false
+
+ggplot(data = daily |> filter(!is.na(rain_tomorrow))) + 
+  aes(x = surface_pressure_4pm, fill = rain_tomorrow) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~season) +
+  xlab('Pressure at 4pm Today') +
+  labs(fill='Will it rain tomorrow?')
+```
+```{r}
+#| label: explore numerical variable pressure change histogram
+# #| echo: false
+
+ggplot(data = daily |> filter(!is.na(rain_tomorrow))) + 
+  aes(x = pressure_change, fill = rain_tomorrow) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~season) +
+  xlab('Pressure at 4pm Today') +
+  labs(fill='Will it rain tomorrow?')
+```
+
+
+```{r}
+#| label: explore numerical variable temperature change histogram
+# #| echo: false
+
+
+ggplot(data = daily |> filter(!is.na(rain_tomorrow))) + 
+  aes(x = temperature_change, fill = rain_tomorrow) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~season) + 
+  xlab('Temperature Change Today') +
+  labs(fill='Will it rain tomorrow?')
+```
+```{r}
+#| label: explore numerical variable humidity change histogram
+# #| echo: false
+
+
+ggplot(data = daily |> filter(!is.na(rain_tomorrow))) + 
+  aes(x = humidity_change, fill = rain_tomorrow) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~season) + 
+  xlab('Humidity Change Today') +
+  labs(fill='Will it rain tomorrow?')
+```
+
+
+```{r}
+#| label: explore numerical variable dew point change histogram
+# #| echo: false
+
+
+ggplot(data = daily |> filter(!is.na(rain_tomorrow))) + 
+  aes(x = dew_point_change, fill = rain_tomorrow) +
+  geom_density(alpha = 0.5) +
+  xlab('Dew Point Change Today') +
+  labs(fill='Will it rain tomorrow?')
+```
+
+
+```{r}
+#| label: logistic model 1
+# #| echo: false
+ 
+model1 <- logistic_spec |>
+  fit(as.factor(rain_tomorrow) ~ rain_today + rain_at_4pm + surface_pressure_4pm + season*relative_humidity_2m_4pm +cloud_cover_4pm, data = train, family="binomial")
+tidy(model1, conf.int = TRUE, conf.level = 0.9)
+
+```
+
+
+
+```{r}
+#| label: odds ratio and confidence intervals model 1
+# #| echo: false
+
+exp(coef(model1$fit))
+exp(confint.default(model1$fit))
+```
+
+
+```{r}
+#| label: explore numerical variable evapotranspiration histogram
+# #| echo: false
+
+
+ggplot(data = daily |> filter(!is.na(rain_tomorrow))) + 
+  aes(x = evapotranspiration, fill = rain_tomorrow) +
+  geom_density(alpha = 0.5) +
+  xlab('Evapotranspiration Today') +
+  labs(fill='Will it rain tomorrow?')
+```
+
+
+```{r}
+#| label: explore categorical variable winds_favor_rain
+# #| echo: false
+
+
+ggplot(train)  +
+  aes(x=winds_favor_rain, fill=rain_tomorrow) + 
+    geom_bar(position="fill") +
+    labs(x = 'Do the winds favor rain?', fill = 'Does it rain tomorrow?')
+
+```
+
+```{r}
+#| label: explore categorical variable raining at 4pm in winter
+# #| echo: false
+
+#| label: bar graphs
+
+ggplot(train)  +
+  aes(x=is_winter, fill=rain_tomorrow) + 
+    geom_bar(position="fill") +
+    labs(x = 'Is it winter?', fill = 'Does it rain tomorrow?')
+
+```
+
+
+```{r}
+#| label: model two
+# #| echo: false
+
+
+model2 <- logistic_spec |>
+  fit(as.factor(rain_tomorrow) ~ rain_today + rain_at_4pm + surface_pressure_4pm + is_winter*relative_humidity_2m_4pm*temperature_2m_4pm +cloud_cover_4pm +winds_favor_rain, data = train, family="binomial")
+
+tidy(model2, conf.int = TRUE, conf.level = 0.9)
+
+```
+
+```{r}
+#| label: model three
+# #| echo: false
+
+model3 <- logistic_spec |>
+  fit(as.factor(rain_tomorrow) ~ rain_today + rain_at_4pm + surface_pressure_4pm + is_winter*relative_humidity_2m_4pm*temperature_2m_4pm + cloud_cover_4pm + wind_direction_above, data = train, family="binomial")
+  
+
+tidy(model3, conf.int = TRUE, conf.level = 0.9)
+
+```
+
+```{r}
+#| label: odds ratio and confidence intervals model 3
+# #| echo: false
+
+exp(coef(model3$fit))
+```
+```{r}
+#| label: odds ratio and confidence intervals model 3 pt2
+#| echo: false
+
+exp(confint.default(model3$fit))
+```
+
+
+```{r}
+#| label: model four
+# #| echo: false
+
+# This was the best performing model for rain >0.1mm
+
+model4 <- logistic_spec |>
+  fit(as.factor(rain_tomorrow) ~ rain_today + rain_at_4pm + pressure_change + humidity_change + cc_4pm_lt_15 + cc_4pm_gt_90 + temperature_change + wind_direction_ground, data = train, family="binomial")
+
+tidy(model4, conf.int = TRUE, conf.level = 0.9)
+```
+
+```{r}
+
+#| label: odds ratio and confidence intervals model 4
+# #| echo: false
+
+exp(coef(model4$fit))
+```
+
+```{r}
+#| label: odds ratio and confidence intervals model 4 pt2
+# #| echo: false
+
+exp(confint.default(model4$fit))
+```
+
+
+
+
+```{r}
+#| label: drop in deviance
+# #| echo: false
+
+dev1 <- glance(base_model)$deviance
+dev2 <- glance(model1)$deviance
+dev3 <- glance(model2)$deviance
+dev4 <- glance(model3)$deviance
+dev5 <- glance(model4)$deviance
+test_stat <- dev1 - dev2
+test_stat2 <- dev1 - dev3
+#test 2 and test 3 were the best, with one variable dropped and two variables added
+test_stat3 <- dev3 - dev4
+test_stat4 <- dev1 - dev4
+1 - pchisq(test_stat, 9)
+#N/A
+1 - pchisq(test_stat3, 4)
+1 - pchisq(test_stat4, 10)
+#this test seems a little useless between my models, because of too many moving parts in and out of the models
+```
+
+```{r}
+#| label: AIC and BIC
+# #| echo: false
+
+
+print("AIC:")
+glance(base_model)$AIC
+glance(model1)$AIC
+glance(model2)$AIC
+glance(model3)$AIC
+glance(model4)$AIC
+print("BIC:")
+glance(base_model)$BIC
+glance(model1)$BIC
+glance(model2)$BIC
+glance(model3)$BIC
+glance(model4)$BIC
+```
+
+```{r}
+#| label: metrics model3
+# #| echo: false
+ 
+
+evaluate_model <- function(model, test_data, model_name) {
+  preds <- predict(model, new_data = test_data, type = "class") |>
+    bind_cols(predict(model, new_data = test_data, type = "prob")) |>
+    bind_cols(test_data |> select(rain_tomorrow))
+  
+  acc <- accuracy(preds, truth = rain_tomorrow, estimate = .pred_class)
+  roc <- roc_auc(preds, truth = rain_tomorrow, .pred_Rain, event_level = "second")
+  sens <- sensitivity(preds, truth = rain_tomorrow, estimate = .pred_class, event_level = "second")
+  spec <- specificity(preds, truth = rain_tomorrow, estimate = .pred_class, event_level = "second")
+  all_metrics <- bind_rows(acc, roc, sens, spec)
+  
+  bind_rows(acc, roc, sens, spec) |>
+    mutate(model = model_name) |>
+    select(model, .metric, .estimate)
+}
+
+# Evaluate best model
+bind_rows(evaluate_model(model3, test, "Model 3:"))
+
+```
+
+```{r}
+#| label: metrics model2
+# #| echo: false
+ 
+bind_rows(evaluate_model(model2, test, "Model 2:"))
+```
+
+```{r}
+#| label: metrics model4
+# #| echo: false
+
+bind_rows(evaluate_model(model4, test, "Model 4:"))
+```
+
+
+
+```{r}
+#| label: confusion matrix model4
+# #| echo: false
+
+conf_data <- predict(model4, new_data = test, type = "class") |>
+  bind_cols(test |> select(rain_tomorrow))
+
+# Create confusion matrix
+cm <- conf_mat(conf_data, truth = rain_tomorrow, estimate = .pred_class)
+
+# Display as table
+cm
+```
+
+```{r}
+#| label: confusion matrix model2
+# #| echo: false
+
+
+conf_data <- predict(model2, new_data = test, type = "class") |>
+  bind_cols(test |> select(rain_tomorrow))
+
+# Create confusion matrix
+cm <- conf_mat(conf_data, truth = rain_tomorrow, estimate = .pred_class)
+
+# Display as table
+cm
+```
+
+
+```{r}
+#| label: confusion matrix model3
+# #| echo: false
+
+
+conf_data <- predict(model3, new_data = test, type = "class") |>
+  bind_cols(test |> select(rain_tomorrow))
+
+# Create confusion matrix
+cm <- conf_mat(conf_data, truth = rain_tomorrow, estimate = .pred_class)
+
+# Display as table
+cm
+```
+
+
+```{r}
+#| label: ROC-AUC graph model4
+# #| echo: false
+
+
+# Generate predictions with probabilities
+roc_data <- predict(model4, new_data = test, type = "prob") |>
+  bind_cols(test |> select(rain_tomorrow))
+
+# Create ROC curve
+roc_curve(roc_data, truth = rain_tomorrow, .pred_Rain, event_level = "second") |>
+  autoplot() +
+  xlab("specificity") +
+  labs(title = "ROC Curve for Model 4",
+       subtitle = paste("AUC =", round(roc_auc(roc_data, truth = rain_tomorrow, .pred_Rain, event_level = "second")$.estimate, 3)))
+```
+
+```{r}
+#| label: ROC-AUC graph model3
+# #| echo: false
+
+
+# Generate predictions with probabilities
+roc_data <- predict(model3, new_data = test, type = "prob") |>
+  bind_cols(test |> select(rain_tomorrow))
+
+# Create ROC curve
+roc_curve(roc_data, truth = rain_tomorrow, .pred_Rain, event_level = "second") |>
+  autoplot() +
+  xlab("specificity") +
+  labs(title = "ROC Curve for Model 3",
+       subtitle = paste("AUC =", round(roc_auc(roc_data, truth = rain_tomorrow, .pred_Rain, event_level = "second")$.estimate, 3)))
+```
+
+
+```{r}
+#| label: logistic model vs test dataset
+# #| echo: false
+
+# Plot distribution of predicted probabilities by actual outcome
+pred_probs <- predict(model3, new_data = test, type = "prob") |>
+  bind_cols(test |> select(rain_tomorrow))
+
+ggplot(pred_probs, aes(x = .pred_Rain, fill = rain_tomorrow)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 0.5, linetype = "dashed") +
+  labs(title = "Distribution of Predicted Probabilities",
+       x = "Predicted Probability of Rain Tomorrow",
+       y = "Density",
+       fill = "Actually Rained?")
+```
+
+```{r}
+#| label: model precip
+# #| echo: false
+
+model_precip <- logistic_spec |>
+  fit(as.factor(precip_tomorrow) ~ precip_today + precip_at_4pm + surface_pressure_4pm + is_winter*relative_humidity_2m_4pm*temperature_2m_4pm + cloud_cover_4pm + wind_direction_above, data = train, family="binomial")
+  
+
+tidy(model_precip, conf.int = TRUE, conf.level = 0.9)
+```
+
+```{r}
+#| label: metrics model precip
+# #| echo: false
+
+
+evaluate_model <- function(model, test_data, model_name) {
+  preds <- predict(model, new_data = test_data, type = "class") |>
+    bind_cols(predict(model, new_data = test_data, type = "prob")) |>
+    bind_cols(test_data |> select(precip_tomorrow))
+  
+  acc <- accuracy(preds, truth = precip_tomorrow, estimate = .pred_class)
+  roc <- roc_auc(preds, truth = precip_tomorrow, .pred_Precip, event_level = "second")
+  sens <- sensitivity(preds, truth = precip_tomorrow, estimate = .pred_class, event_level = "second")
+  spec <- specificity(preds, truth = precip_tomorrow, estimate = .pred_class, event_level = "second")
+  all_metrics <- bind_rows(acc, roc, sens, spec)
+  
+  bind_rows(acc, roc, sens, spec) |>
+    mutate(model = model_name) |>
+    select(model, .metric, .estimate)
+}
+
+bind_rows(evaluate_model(model_precip, test, "Model Precipitation:"))
+```
+
+```{r}
+#| label: confusion matrix model precip
+# #| echo: false
+
+
+conf_data <- predict(model_precip, new_data = test, type = "class") |>
+  bind_cols(test |> select(precip_tomorrow))
+
+# Create confusion matrix
+cm <- conf_mat(conf_data, truth = precip_tomorrow, estimate = .pred_class)
+
+# Display as table
+cm
+```
+
+
+```{r}
+#| label: ROC-AUC graph model precip
+# #| echo: false
+
+
+# Generate predictions with probabilities
+roc_data <- predict(model_precip, new_data = test, type = "prob") |>
+  bind_cols(test |> select(precip_tomorrow))
+
+# Create ROC curve
+roc_curve(roc_data, truth = precip_tomorrow, .pred_Precip, event_level = "second") |>
+  autoplot() +
+  xlab("specificity") +
+  labs(title = "ROC Curve for Model precip",
+       subtitle = paste("AUC =", round(roc_auc(roc_data, truth = precip_tomorrow, .pred_Precip, event_level = "second")$.estimate, 3)))
+```
+
+```{r}
+#| label: logistic model vs test dataset precipitation
+# #| echo: false
+
+# Plot distribution of predicted probabilities by actual outcome
+pred_probs <- predict(model_precip, new_data = test, type = "prob") |>
+  bind_cols(test |> select(precip_tomorrow))
+
+ggplot(pred_probs, aes(x = .pred_Precip, fill = precip_tomorrow)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 0.5, linetype = "dashed") +
+  labs(title = "Distribution of Predicted Probabilities",
+       x = "Predicted Probability of Precipitation Tomorrow",
+       y = "Density",
+       fill = "Actually Precipitated?")
+```
+

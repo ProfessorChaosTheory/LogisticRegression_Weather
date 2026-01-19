@@ -55,8 +55,8 @@ Develop a binary classification model that can predict next-day rainfall using o
 ## How to Run
 1. Clone the repository
 2. Install required packages: `install.packages(c("tidyverse", "tidymodels", "lubridate"))`
-3. Run `data_wrangling.R` to process raw data
-4. Open and render `final_report.qmd` for complete analysis
+3. Run `RainTomorrow_analysis.qmd` to view methods and codes
+4. Open and render `RainTomorrow_report.qmd` for complete analysis
 
 ## Author
 Evan Pritchard
